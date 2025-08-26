@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>庫存狀態追蹤系統</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet"/>
+  <style>
+    body{font-family:'Inter',sans-serif;}
+    body.dark{background-color:#1a202c;color:#e2e8f0;}
+    .view{display:none;}
+    .tooltip-container .tooltip-content{visibility:hidden;opacity:0;transition:opacity .3s;}
+    .tooltip-container:hover .tooltip-content{visibility:visible;opacity:1;}
+    .chip{border:1px solid #e2e8f0;border-radius:9999px;padding:.25rem .6rem;font-size:.875rem}
+    .chip.active{background:#0f172a;color:#fff;border-color:#0f172a}
+
+    /* 可用月份數：有檢核有效期時的深藍底標籤 */
+    .badge-expiry{
+      background-color:#1e3a8a; /* 深藍 */
+      color:#fff;
+      border-radius:0.375rem;
+      padding:0.125rem 0.375rem;
+      display:inline-block;
+      line-height:1.1;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+
+  <!-- Main View -->
+  <div id="main-view" class="view flex flex-col items-center p-4 sm:p-8 min-h-screen">
+    <h1 class="text-3xl sm:text-4xl font-bold mb-8 text-center">庫存狀態</h1>
+
+    <!-- Query section -->
+    <div class="w-full max-w-4xl bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6 sm:p-8 mb-8 transition-all">
+      <h2 class="text-xl font-semibold mb-4 border-b pb-2 dark:border-gray-700">查詢</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label for="company" class="block text-sm font-medium mb-1">公司</label>
+          <select id="company" class="w-full px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 border border-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors"></select>
+        </div>
+        <div>
+          <label for="campus" class="block text-sm font-medium mb-1">院區</label>
+          <select id="campus" class="w-full px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 border border-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors" disabled></select>
+        </div>
+        <div>
+          <label for="warehouse" class="block text-sm font-medium mb-1">庫別</label>
+          <select id="warehouse" class="w-full px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 border border-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors" disabled></select>
+        </div>
+        <div>
+          <label for="materialCode" class="block text-sm font-medium mb-1">材料編號</label>
+          <input type="text" id="materialCode" class="w-full px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 border border-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors" placeholder="例: A001">
+        </div>
+        <div class="col-span-1 md:col-span-2">
+          <label for="specificContent" class="block text-sm font-medium mb-1">特定顯示內容</label>
+          <input type="text" id="specificContent" class="w-full px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 border border-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors" placeholder="選填">
+        </div>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button id="main-query-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">查詢</button>
+        <button id="goto-announcement-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">公告填寫</button>
+      </div>
+      <p id="main-message" class="text-red-500 text-center mt-4"></p>
+    </div>
+
+    <!-- Query results section -->
+    <div class="w-full max-w-4xl bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6 sm:p-8 transition-all">
+      <h2 class="text-xl font-semibold mb-4 border-b pb-2 dark:border-gray-700">查詢結果</h2>
+      <div id="query-results-container">
+        <p class="text-center text-gray-500">點選「查詢」後，結果將會顯示於此。</p>
+      </div>
+      <div id="detailed-results-container" class="mt-8"></div>
+    </div>
+  </div>
+
+  <!-- 895 View -->
+  <div id="view-895" class="view flex flex-col items-center p-4 sm:p-8 min-h-screen">
+    <h1 class="text-3xl sm:text-4xl font-bold mb-8 text-center">895 存管基準及在途查詢</h1>
+    <div class="w-full max-w-4xl bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6 sm:p-8 mb-8 transition-all">
+      <h2 class="text-xl font-semibold mb-4 border-b pb-2 dark:border-gray-700">查詢條件</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">公司</label>
+          <span class="block px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700">G長庚紀念醫院</span>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">材料編號</label>
+          <span id="895-material-code" class="block px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700"></span>
+        </div>
+      </div>
+    </div>
+    <div id="895-results-container" class="w-full max-w-4xl bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6 sm:p-8 transition-all"></div>
+    <button class="back-to-main mt-6 w-full max-w-4xl bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">返回庫存查詢頁面</button>
+  </div>
+
+  <!-- Forecast View -->
+  <div id="view-forecast" class="view flex flex-col items-center p-4 sm:p-8 min-h-screen">
+    <h1 class="text-3xl sm:text-4xl font-bold mb-8 text-center">次月預測詳情</h1>
+    <div id="forecast-results-container" class="w-full max-w-4xl bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6 sm:p-8 transition-all"></div>
+    <button class="back-to-main mt-6 w-full max-w-4xl bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">返回庫存查詢頁面</button>
+  </div>
+
+  <!-- Progress Input View -->
+  <div id="view-progress-input" class="view flex flex-col items-center p-4 sm:p-8 min-h-screen">
+    <h1 class="text-3xl sm:text-4xl font-bold mb-8 text-center" style="color:#495057;">庫存異常處理進度查詢與輸入</h1>
+    <div class="w-full max-w-4xl flex flex-col space-y-8">
+      <!-- 查詢區 -->
+      <div class="p-6 md:p-8 rounded-2xl shadow-md" style="background-color:#E9ECEF;border:1px solid #D3D9DE;">
+        <h2 class="text-xl md:text-2xl font-semibold mb-4 border-b pb-2" style="color:#495057;border-color:#D3D9DE;">查詢區</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">公司</label><select id="progress-query-company" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></select></div>
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">院區</label><select id="progress-query-campus" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;" disabled></select></div>
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">庫別</label><select id="progress-query-warehouse" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;" disabled></select></div>
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">材料編號</label><input type="text" id="progress-query-materialCode" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></div>
+        </div>
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">起始日期</label><input type="date" id="progress-startDate" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></div>
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">結束日期</label><input type="date" id="progress-endDate" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></div>
+        </div>
+        <button id="progress-query-btn" style="background-color:#A5C4BB;color:white;" class="mt-6 w-full font-bold py-2 px-4 rounded-lg shadow-md">查詢</button>
+      </div>
+
+      <!-- 查詢結果 -->
+      <div class="p-6 md:p-8 rounded-2xl shadow-md" style="background-color:#E9ECEF;border:1px solid #D3D9DE;">
+        <h2 class="text-xl md:text-2xl font-semibold mb-4 border-b pb-2" style="color:#495057;border-color:#D3D9DE;">查詢結果</h2>
+        <div id="progress-history-container" class="overflow-x-auto">
+          <table class="min-w-full table-auto text-left">
+            <thead>
+              <tr style="background-color:#C8D2DA;color:#495057;">
+                <th class="px-2 sm:px-4 py-2 text-sm font-medium whitespace-nowrap">時間戳記</th>
+                <th class="px-2 sm:px-4 py-2 text-sm font-medium">輸入人</th>
+                <th class="px-2 sm:px-4 py-2 text-sm font-medium whitespace-nowrap">材料編號</th>
+                <th class="px-2 sm:px-4 py-2 text-sm font-medium">原因</th>
+                <th class="px-2 sm:px-4 py-2 text-sm font-medium">處理進度</th>
+                <th class="px-2 sm:px-4 py-2 text-sm font-medium">備註</th>
+              </tr>
+            </thead>
+            <tbody id="progress-history-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 輸入表單 -->
+      <div class="p-6 md:p-8 rounded-2xl shadow-md" style="background-color:#E9ECEF;border:1px solid #D3D9DE;">
+        <h2 class="text-xl md:text-2xl font-semibold mb-4 border-b pb-2" style="color:#495057;border-color:#D3D9DE;">異常處理進度輸入</h2>
+        <form id="progress-form" class="space-y-4">
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">公司</label><span id="input-company" class="block px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></span></div>
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">院區</label><span id="input-campus" class="block px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></span></div>
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">庫別</label><span id="input-warehouse" class="block px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></span></div>
+          <div><label class="block text-sm font-medium mb-1" style="color:#6C757D;">材料編號</label><span id="input-material-code" class="block px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></span></div>
+          <div><label for="input-reason" class="block text-sm font-medium mb-1" style="color:#6C757D;">異常原因</label><select id="input-reason" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></select></div>
+          <div><label for="input-progress-status" class="block text-sm font-medium mb-1" style="color:#6C757D;">處理進度</label><select id="input-progress-status" class="w-full px-4 py-2 rounded-lg" style="background-color:#E0E4E7;"></select></div>
+          <div><label for="input-notes" class="block text-sm font-medium mb-1" style="color:#6C757D;">備註</label><textarea id="input-notes" class="w-full px-4 py-2 rounded-lg" rows="3" style="background-color:#E0E4E7;"></textarea></div>
+          <button type="submit" id="progress-submit-btn" style="background-color:#A5C4BB;color:white;" class="w-full font-bold py-2 px-4 rounded-lg shadow-md">提交</button>
+          <p id="progress-message" class="text-red-500 text-center mt-4"></p>
+        </form>
+      </div>
+    </div>
+    <button class="back-to-main mt-6 w-full max-w-4xl bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">返回庫存查詢頁面</button>
+  </div>
+
+  <!-- Announcement View（無預覽） -->
+  <div id="view-announcement" class="view min-h-screen p-4 sm:p-8">
+    <div class="mx-auto max-w-[1200px]">
+      <div class="flex items-center justify-between mb-4">
+        <h1 class="text-2xl font-semibold tracking-tight">公告建立</h1>
+        <button class="back-to-main bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors">
+          返回庫存查詢頁面
+        </button>
+      </div>
+      <div id="announcement-root"></div>
+    </div>
+  </div>
+
+  <script>
+    // ------------------ 全域狀態 ------------------
+    let state = {
+      company:'G長庚紀念醫院',
+      campus:'', warehouse:'', materialCode:'', specificContent:'',
+      queryResults:[], detailedResults:[], showDetailedTable:false,
+      view:'main', selectedMaterialCode:null, selectedMaterialForecast:null,
+      progressHistory:[
+        { timestamp:'2024/07/20-10:00:00', inputter:'用戶', company:'G長庚紀念醫院', campus:'林口院區', warehouse:'MA', materialCode:'A001', reason:'需求激增', progressStatus:'已通知', notes:'已聯繫使用部門' },
+        { timestamp:'2024/08/10-14:30:00', inputter:'用戶', company:'G長庚紀念醫院', campus:'林口院區', warehouse:'MA', materialCode:'B002', reason:'供應鏈問題', progressStatus:'追蹤中', notes:'已發郵件給供應商' },
+        { timestamp:'2024/08/15-09:00:00', inputter:'用戶', company:'G長庚紀念醫院', campus:'林口院區', warehouse:'MA', materialCode:'C003', reason:'庫存過低', progressStatus:'待處理', notes:'等待採購審核' },
+        { timestamp:'2024/08/20-11:00:00', inputter:'用戶', company:'G長庚紀念醫院', campus:'林口院區', warehouse:'MA', materialCode:'A001', reason:'緊急調撥', progressStatus:'已完成調撥', notes:'已從嘉義院區調撥' },
+        { timestamp:'2024/08/21-16:00:00', inputter:'用戶', company:'G長庚紀念醫院', campus:'林口院區', warehouse:'MA', materialCode:'C003', reason:'庫存過低', progressStatus:'已聯繫廠商交貨', notes:'預計下週到貨' },
+      ],
+      filteredProgressHistory:[], startDate:'', endDate:'',
+    };
+
+    // ------------------ 假資料 ------------------
+    const dataMap = {
+      'G長庚紀念醫院': { campuses: { '林口院區':['MA'], '嘉義院區':['GA'], '高雄院區':['KA'] } },
+      'V土城醫院': { campuses: { '土城院區':['VMA','VA'] } },
+    };
+
+    // 詳細明細資料
+    const mockDetailedResults = {
+      '🔴紅':[
+        { id:'A001', name:'針筒-10ml', riskLevel:'🔴紅', alertDays:45, cause:'需求激增', action:'緊急調撥', progress:'已通知', lastDate:'2024-08-15', nextMonthForecast:1500, monthsAvailable:0.5, expiryChecked:true },
+        { id:'B002', name:'手術刀-小', riskLevel:'🔴紅', alertDays:30, cause:'供應鏈問題', action:'追蹤供應商', progress:'追蹤中', lastDate:'2024-08-10', nextMonthForecast:200, monthsAvailable:0.8 },
+        { id:'C003', name:'消毒液-500ml', riskLevel:'🔴紅', alertDays:60, cause:'庫存過低', action:'立即採購', progress:'待處理', lastDate:'2024-08-20', nextMonthForecast:3000, monthsAvailable:0.2, expiryChecked:true },
+      ],
+      '🟡黃':[ { id:'D004', name:'繃帶', riskLevel:'🟡黃', alertDays:15, cause:'季節性需求', action:'觀察庫存', progress:'無', lastDate:'2024-08-18', nextMonthForecast:5000, monthsAvailable:1.5 } ],
+      '🟢綠':[ { id:'E005', name:'手套-M號', riskLevel:'🟢綠', alertDays:5, cause:'正常波動', action:'無', progress:'無', lastDate:'2024-08-19', nextMonthForecast:10000, monthsAvailable:3.2 } ],
+      '⚫黑':[ { id:'F006', name:'口罩-N95', riskLevel:'⚫黑', alertDays:1, cause:'庫存耗盡', action:'緊急補貨', progress:'已下單', lastDate:'2024-08-21', nextMonthForecast:500, monthsAvailable:0.0 } ],
+    };
+
+    // 去年同月 & 預測
+    const mockForecastData = {
+      'A001':{ name:'針筒-10ml', pastUsage:[1200,1300,1100,1450,1550,1600], forecast:1500, lastYearSameMonth:950,  description:'需求激增預計將持續，主要受季節性疾病影響。', factor:'季節性疾病、科室需求變動' },
+      'B002':{ name:'手術刀-小', pastUsage:[250,220,190,210,230,200],       forecast:200,  lastYearSameMonth:210,  description:'用量穩定，預測值與月均用量相符。',             factor:'手術量穩定' },
+      'C003':{ name:'消毒液-500ml', pastUsage:[2800,3100,2900,3050,3200,2950], forecast:3000, lastYearSameMonth:2600, description:'庫存補充後，預計用量將恢復正常。',               factor:'庫存補充' },
+      'D004':{ name:'繃帶', pastUsage:[4500,4800,5100,5000,4900,5200],       forecast:5000, lastYearSameMonth:4800, description:'用量受季節性需求輕微波動，整體保持穩定。',       factor:'季節性活動、意外事件' },
+      'E005':{ name:'手套-M號', pastUsage:[9800,10100,9900,10050,10200,9950], forecast:10000,lastYearSameMonth:9800, description:'用量穩定且基數較大，預測值與過去用量趨勢一致。', factor:'正常科室用量' },
+      'F006':{ name:'口罩-N95', pastUsage:[100,200,150,50,10,0],             forecast:500,  lastYearSameMonth:120,  description:'近期庫存耗盡，預計下月補貨後用量將會增加。',     factor:'庫存補充、緊急需求' },
+    };
+
+    // 也可用這張表加標記，不想改資料時就改這裡
+    const expiryCheckMap = { /* 'A001': true, 'C003': true 等 */ };
+
+    const mock895Data = {
+      chineseName:'普迪斯縫合線 P.D.S II NO.1 W5299T',
+      materialCode:'84-301-010359', unit:'PC', inventoryQty:1415, monthsAvailable:34.3, onRouteQty:216,
+      monthlyUsage:[944,722,742,699,787,586],
+      detailTable:[
+        { warehouse:'MA', campus:'A', setDays:808, safeDays:10, alertDays:15, avg:268, invQty:24, invMonth:519, onRouteQty:0 },
+        { warehouse:'KA', campus:'A', setDays:305, safeDays:10, alertDays:25, avg:268, invQty:24, invMonth:519, onRouteQty:0 },
+        { warehouse:'GA', campus:'A', setDays:122, safeDays:10, alertDays:25, avg:108, invQty:30, invMonth:248, onRouteQty:0 },
+        { warehouse:'YKA', campus:'A', setDays:1,   safeDays:10, alertDays:25, avg:4,   invQty:30, invMonth:1350, onRouteQty:0 },
+      ]
+    };
+    const riskOrder = ['⚫黑','🔴紅','🟡黃','🟢綠'];
+    const customCampusOrder = ['林口院區','嘉義院區','高雄院區','土城院區'];
+
+    // ------------------ 共用 DOM 快取 ------------------
+    const views = document.querySelectorAll('.view');
+    const companySelect = document.getElementById('company');
+    const campusSelect = document.getElementById('campus');
+    const warehouseSelect = document.getElementById('warehouse');
+    const materialCodeInput = document.getElementById('materialCode');
+    const mainQueryBtn = document.getElementById('main-query-btn');
+    const gotoAnnouncementBtn = document.getElementById('goto-announcement-btn');
+    const mainMessage = document.getElementById('main-message');
+    const queryResultsContainer = document.getElementById('query-results-container');
+    const detailedResultsContainer = document.getElementById('detailed-results-container');
+    const progressHistoryTableBody = document.getElementById('progress-history-table-body');
+
+    // 時間戳記格式工具：YYYY/MM/DD-HH:MM:SS
+    const pad2 = n => String(n).padStart(2,'0');
+    function nowTimestamp(){
+      const t = new Date();
+      return `${t.getFullYear()}/${pad2(t.getMonth()+1)}/${pad2(t.getDate())}-${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}`;
+    }
+
+    function setView(viewId){
+      views.forEach(v => v.style.display = 'none');
+      const el = document.getElementById(viewId);
+      if (!el) return;
+      el.style.display = (viewId==='main-view' ? 'flex' : 'block');
+      if (viewId === 'view-895') render895View();
+      if (viewId === 'view-forecast') renderForecastView();
+      if (viewId === 'view-progress-input') renderProgressInputView();
+      if (viewId === 'view-announcement') renderAnnouncementView();
+    }
+    function populateSelect(selectElement, options, placeholder) {
+      selectElement.innerHTML = `<option value="" selected>${placeholder}</option>`;
+      options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt; option.textContent = opt;
+        selectElement.appendChild(option);
+      });
+    }
+
+    // ------------------ 小工具 ------------------
+    function getForecastStatus(code){
+      const d = mockForecastData[code];
+      if(!d || typeof d.lastYearSameMonth !== 'number' || Number.isNaN(d.lastYearSameMonth)){
+        return { text:'—', cls:'text-gray-400' };
+      }
+      const isHigh = d.forecast >= 1.5 * d.lastYearSameMonth;
+      return {
+        text: isHigh ? '偏高' : '正常',
+        cls:  isHigh ? 'text-rose-600 font-semibold' : 'text-emerald-600 font-semibold'
+      };
+    }
+    function riskDot(riskLevel){
+      const colorMap = {
+        '⚫黑': 'bg-gray-900',
+        '🔴紅': 'bg-rose-600',
+        '🟡黃': 'bg-amber-400',
+        '🟢綠': 'bg-emerald-500'
+      };
+      const cls = colorMap[riskLevel] || 'bg-gray-400';
+      return `
+        <button class="risk-level-btn inline-flex items-center justify-center
+                       w-4 h-4 rounded-full ${cls}
+                       ring-2 ring-transparent hover:ring-blue-400 focus:outline-none"
+                data-risk="${riskLevel}" aria-label="${riskLevel}">
+        </button>`;
+    }
+
+    // ------------------ 主頁 查詢/結果 ------------------
+    function renderQueryResults() {
+      if (!state.queryResults.length) {
+        queryResultsContainer.innerHTML = `<p class="text-center text-gray-500">無查詢結果。</p>`;
+        return;
+      }
+      const tooltipContent =
+`🟢綠 : 庫存量 ≥ 最低存量 x 0.9
+🟡黃 : 最低存量 x 0.7 < 庫存量 < 最低存量 x 0.9
+🔴紅 : 庫存量 < 最低存量 x 0.7
+⚫黑 : 庫存量=0`;
+      const sorted = [...state.queryResults].sort((a,b)=>riskOrder.indexOf(a.riskLevel)-riskOrder.indexOf(b.riskLevel));
+      const rows = sorted.map(r=>`
+        <tr class="border-b dark:border-gray-700 last:border-b-0">
+          <td class="px-4 py-2">${r.warehouse}</td>
+          <td class="px-4 py-2">${riskDot(r.riskLevel)}</td>
+          <td class="px-4 py-2">${r.count}</td>
+        </tr>
+      `).join('');
+      queryResultsContainer.innerHTML = `
+        <div class="overflow-x-auto mb-8">
+          <table class="min-w-full table-auto text-left">
+            <thead>
+              <tr class="border-b dark:border-gray-700">
+                <th class="px-4 py-2 text-sm font-medium">庫別</th>
+                <th class="px-4 py-2 text-sm font-medium relative tooltip-container">
+                  風險分級
+                  <div class="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 p-4 rounded-lg shadow-lg bg-gray-800 text-white text-xs z-10 tooltip-content whitespace-pre-line">${tooltipContent}</div>
+                </th>
+                <th class="px-4 py-2 text-sm font-medium">項數</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }
+
+    function renderDetailedResults() {
+      if (!state.showDetailedTable || !state.detailedResults.length) {
+        detailedResultsContainer.innerHTML = '';
+        return;
+      }
+      const rows = state.detailedResults.map(item=>{
+        const { text, cls } = getForecastStatus(item.id);
+
+        // 是否有檢核有效期標示（兩來源：資料欄位或對照 map）
+        const hasExpiry =
+          (typeof item.expiryChecked === 'boolean' && item.expiryChecked) ||
+          (expiryCheckMap[item.id] === true);
+
+        const monthsCell = hasExpiry
+          ? `<span class="badge-expiry">${item.monthsAvailable}</span>`
+          : `${item.monthsAvailable}`;
+
+        return `
+          <tr class="border-b dark:border-gray-700 last:border-b-0">
+            <td class="px-4 py-2">
+              <button class="material-code-btn text-blue-600 hover:text-blue-800" data-code="${item.id}">${item.id}</button>
+            </td>
+            <td class="px-4 py-2">${item.name}</td>
+            <td class="px-4 py-2">${riskDot(item.riskLevel)}</td>
+            <td class="px-4 py-2">${item.alertDays}</td>
+            <td class="px-4 py-2">${item.cause}</td>
+            <td class="px-4 py-2">${item.action}</td>
+            <td class="px-4 py-2">
+              <button class="progress-btn text-blue-600 hover:text-blue-800" data-code="${item.id}">${item.progress}</button>
+            </td>
+            <td class="px-4 py-2">${item.lastDate}</td>
+            <td class="px-4 py-2">
+              <button class="forecast-btn ${cls}" data-code="${item.id}">${text}</button>
+            </td>
+            <td class="px-4 py-2">${monthsCell}</td>
+          </tr>`;
+      }).join('');
+      detailedResultsContainer.innerHTML = `
+        <div class="overflow-x-auto">
+          <h3 class="text-lg font-semibold mb-2">詳細明細</h3>
+          <table class="min-w-full table-auto text-left">
+            <thead>
+              <tr class="border-b dark:border-gray-700">
+                <th class="px-4 py-2 text-sm font-medium">材料編號</th>
+                <th class="px-4 py-2 text-sm font-medium">品名規格</th>
+                <th class="px-4 py-2 text-sm font-medium">風險分級</th>
+                <th class="px-4 py-2 text-sm font-medium">警示天數</th>
+                <th class="px-4 py-2 text-sm font-medium">可能原因</th>
+                <th class="px-4 py-2 text-sm font-medium">建議措施</th>
+                <th class="px-4 py-2 text-sm font-medium">處理進度</th>
+                <th class="px-4 py-2 text-sm font-medium">最後處理日期</th>
+                <th class="px-4 py-2 text-sm font-medium">次月預測</th>
+                <th class="px-4 py-2 text-sm font-medium">可用月份數</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }
+
+    // ------------------ 895 View ------------------
+    function render895View(){
+      document.getElementById('895-material-code').textContent = state.selectedMaterialCode;
+      const c = document.getElementById('895-results-container');
+      const trows = mock895Data.detailTable.map(item=>`
+        <tr class="border-b dark:border-gray-700 last:border-b-0">
+          <td class="px-4 py-2">${item.warehouse}</td>
+          <td class="px-4 py-2">${item.campus}</td>
+          <td class="px-4 py-2">${item.setDays}</td>
+          <td class="px-4 py-2">${item.safeDays}</td>
+          <td class="px-4 py-2">${item.alertDays}</td>
+          <td class="px-4 py-2">${item.avg}</td>
+          <td class="px-4 py-2">${item.invQty}</td>
+          <td class="px-4 py-2">${item.invMonth}</td>
+          <td class="px-4 py-2">${item.onRouteQty}</td>
+        </tr>`).join('');
+      c.innerHTML = `
+        <h2 class="text-xl font-semibold mb-4 border-b pb-2 dark:border-gray-700">查詢結果</h2>
+        <div class="mb-4">
+          <div class="flex items-center mb-2"><span class="text-sm font-medium mr-2">中文品名:</span><span class="text-sm">${mock895Data.chineseName}</span></div>
+          <div class="flex items-center"><span class="text-sm font-medium mr-2">單位:</span><span class="text-sm">${mock895Data.unit}</span></div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center mb-8">
+          <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg"><div class="text-sm font-semibold mb-1">總庫存量</div><div class="text-2xl font-bold">${mock895Data.inventoryQty}</div></div>
+          <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg"><div class="text-sm font-semibold mb-1">總可用天數</div><div class="text-2xl font-bold">${mock895Data.monthsAvailable}</div></div>
+          <div class="p-4 bg-gray-100 dark:bg-gray-700 rounded-lg"><div class="text-sm font-semibold mb-1">總在途量</div><div class="text-2xl font-bold">${mock895Data.onRouteQty}</div></div>
+        </div>
+        <div class="h-64 mb-8"><canvas id="895-chart"></canvas></div>
+        <div class="overflow-x-auto mb-6">
+          <table class="min-w-full table-auto text-left">
+            <thead>
+              <tr class="border-b dark:border-gray-700">
+                <th class="px-4 py-2 text-sm font-medium">庫別</th>
+                <th class="px-4 py-2 text-sm font-medium">院區</th>
+                <th class="px-4 py-2 text-sm font-medium">存管天數</th>
+                <th class="px-4 py-2 text-sm font-medium">安全天數</th>
+                <th class="px-4 py-2 text-sm font-medium">警示天數</th>
+                <th class="px-4 py-2 text-sm font-medium">月均用量</th>
+                <th class="px-4 py-2 text-sm font-medium">庫存量</th>
+                <th class="px-4 py-2 text-sm font-medium">可用天數</th>
+                <th class="px-4 py-2 text-sm font-medium">在途量</th>
+              </tr>
+            </thead>
+            <tbody>${trows}</tbody>
+          </table>
+        </div>`;
+      const ctx = document.getElementById('895-chart').getContext('2d');
+      new Chart(ctx, {
+        type:'bar',
+        data:{ labels:['一','二','三','四','五','六'], datasets:[{ label:'月用量', data:mock895Data.monthlyUsage, backgroundColor:'rgba(59,130,246,0.5)', borderColor:'rgba(59,130,246,1)', borderWidth:1 }] },
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, title:{display:true, text:'近六個月用量', color:'rgb(107,114,128)', font:{size:16} } }, scales:{ x:{ grid:{display:false}, ticks:{color:'rgb(107,114,128)'}}, y:{ grid:{color:'rgba(209,213,219,0.2)'}, ticks:{color:'rgb(107,114,128)'}}}}
+      });
+    }
+
+    // ------------------ 預測 View（含去年同月與比較結果） ------------------
+    function renderForecastView(){
+      const container = document.getElementById('forecast-results-container');
+      const d = state.selectedMaterialForecast;
+      if (!d) { container.innerHTML = `<p class="text-center text-red-500 mb-4">查無預測資料，請返回首頁。</p>`; return; }
+
+      const hasLY = typeof d.lastYearSameMonth === 'number' && !Number.isNaN(d.lastYearSameMonth);
+      const isHigh = hasLY ? (d.forecast >= 1.5 * d.lastYearSameMonth) : false;
+      const labelText = hasLY ? (isHigh ? '偏高' : '正常') : '—';
+      const labelClass = isHigh ? 'text-rose-600 font-semibold' : 'text-emerald-600 font-semibold';
+
+      container.innerHTML = `
+        <h2 class="text-xl font-semibold mb-4 border-b pb-2 dark:border-gray-700">預測分析</h2>
+        <div class="mb-4">
+          <p class="text-lg font-bold">${d.name}</p>
+          <p class="text-sm text-gray-500">材料編號: ${state.selectedMaterialCode}</p>
+        </div>
+
+        <div class="h-64 mb-8"><canvas id="forecast-chart"></canvas></div>
+
+        <div class="mb-4">
+          <p class="text-sm font-medium mb-1">預測值:</p>
+          <p class="text-xl font-bold text-blue-600">${d.forecast}</p>
+        </div>
+        <div class="mb-4">
+          <p class="text-sm font-medium mb-1">預測說明:</p>
+          <p class="text-base">${d.description}</p>
+        </div>
+        <div class="mb-6">
+          <p class="text-sm font-medium mb-1">影響因子:</p>
+          <p class="text-base">${d.factor}</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <div>
+            <p class="text-sm font-medium mb-1">去年同月用量</p>
+            <p class="text-lg font-semibold">${hasLY ? d.lastYearSameMonth : '—'}</p>
+          </div>
+          <div>
+            <p class="text-sm font-medium mb-1">比較結果（次月預測 vs 去年同月）</p>
+            <p class="text-lg ${labelClass}">
+              ${labelText}
+              ${hasLY ? `<span class="ml-2 text-xs text-gray-500">(門檻：≥ 去年同月 × 1.5)</span>` : ''}
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-8 pt-6 border-t dark:border-gray-700">
+          <h2 class="text-xl font-semibold mb-4">用量計算</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">庫存量</label>
+              <input type="number" id="calc-inventory" class="w-full px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700" placeholder="請輸入庫存量">
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">可用天數</label>
+              <input type="number" id="calc-days" class="w-full px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-700" placeholder="請輸入可用天數">
+            </div>
+          </div>
+          <button id="calculate-usage-btn" class="mt-4 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg">計算月均用量</button>
+          <div id="calculated-usage-result" class="mt-4"></div>
+        </div>`;
+
+      const ctx = document.getElementById('forecast-chart').getContext('2d');
+      new Chart(ctx, {
+        type:'line',
+        data:{ labels:['過去6個月','過去5個月','過去4個月','過去3個月','過去2個月','過去1個月','次月預測'], datasets:[{ label:'月用量與預測', data:[...d.pastUsage, d.forecast], fill:false, borderColor:'rgb(75,192,192)', tension:0.1 }] },
+        options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, title:{ display:true, text:'用量趨勢與預測', color:'rgb(107,114,128)', font:{size:16}}}, scales:{ x:{ grid:{display:false}, ticks:{color:'rgb(107,114,128)'}}, y:{ grid:{color:'rgba(209,213,219,0.2)'}, ticks:{color:'rgb(107,114,128)'}}}}
+      });
+    }
+
+    // ------------------ 進度輸入 View ------------------
+    function renderProgressInputView(){
+      const inputReasonSelect = document.getElementById('input-reason');
+      const inputProgressStatusSelect = document.getElementById('input-progress-status');
+      const morandi = { tableBg:'#F1F1F1', card:'#E9ECEF', border:'#D3D9DE' };
+      const reasonOptions = ['02項附圖附樣','03項調撥','廠商逾期未交貨','存管設定量過低','臨床需求增加','廠商通知短期無法供貨'];
+      const progressStatusOptions = ['已上傳圖檔','已完成調撥','已聯繫廠商交貨','已洽使用部門調整存管設定','請存管員協助','材料試用中'];
+
+      const rows = state.filteredProgressHistory.map((item,i)=>`
+        <tr style="background-color:${i%2===0? morandi.tableBg: morandi.card}; border-color:${morandi.border};" class="border-b">
+          <td class="px-2 sm:px-4 py-2 whitespace-nowrap">${item.timestamp}</td>
+          <td class="px-2 sm:px-4 py-2 whitespace-nowrap">${item.inputter}</td>
+          <td class="px-2 sm:px-4 py-2">${item.materialCode}</td>
+          <td class="px-2 sm:px-4 py-2">${item.reason}</td>
+          <td class="px-2 sm:px-4 py-2">${item.progressStatus}</td>
+          <td class="px-2 sm:px-4 py-2">${item.notes || '-'}</td>
+        </tr>`).join('');
+      progressHistoryTableBody.innerHTML = rows || '<tr><td colspan="6" class="text-center py-4">無查詢結果。</td></tr>';
+
+      populateSelect(inputReasonSelect, reasonOptions, '請選擇原因');
+      populateSelect(inputProgressStatusSelect, progressStatusOptions, '請選擇進度');
+
+      if (state.selectedMaterialCode) {
+        document.getElementById('input-company').textContent = state.company || '';
+        document.getElementById('input-campus').textContent = state.campus || '';
+        document.getElementById('input-warehouse').textContent = state.warehouse || '';
+        document.getElementById('input-material-code').textContent = state.selectedMaterialCode || '';
+      }
+    }
+
+    // ------------------ 公告 View（無預覽） ------------------
+    function renderAnnouncementView(){
+      const root = document.getElementById('announcement-root');
+      if(!root) return;
+
+      const audienceOptions = ["基隆","情人湖","台北","長庚診所","土城","林口","桃園","護家"];
+      const altSuggestMap = {
+        "84-301-010359": [
+          { id:"w9299t", label:"愛情康 W9299T — 普迪斯縫合線 P.D.S* II NO.1 W9299T（許可證 016794 號）" },
+          { id:"z468h",  label:"壯生 Z-468H — 針線組" },
+          { id:"z359t",  label:"壯生 Z359T — 針線組" }
+        ],
+        "84-307-224590": [ { id:"z468h", label:"壯生 Z-468H — 針線組" } ],
+        "84-307-224580": [ { id:"z359t", label:"壯生 Z359T — 針線組" } ]
+      };
+      const matDB = {
+        "84-301-010359": { vendorName:"愛情康", model:"W9299T", productSpec:"普迪斯縫合線 P.D.S* II NO.1 W9299T", licenseNo:"衛署醫器製字第 016794 號" },
+        "84-307-224590": { vendorName:"壯生", model:"Z-468H", productSpec:"針線組", licenseNo:"—" },
+        "84-307-224580": { vendorName:"壯生", model:"Z359T", productSpec:"針線組", licenseNo:"—" },
+      };
+
+      root.innerHTML = `
+        <div class="space-y-4">
+          <div class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 space-y-4">
+            <h2 class="text-base font-semibold tracking-tight">公告基本資訊</h2>
+
+            <div>
+              <label class="text-sm text-slate-600">公告標題</label>
+              <input id="a-title" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400" placeholder="例如：某材料庫存偏低，請配合替代用料">
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="text-sm text-slate-600">開始日期</label>
+                <input id="a-start" type="date" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+              </div>
+              <div>
+                <label class="text-sm text-slate-600">結束日期</label>
+                <input id="a-end" type="date" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+                <div id="a-date-msg" class="mt-1 text-xs text-rose-600 hidden">結束日期不可早於開始日期</div>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-sm text-slate-600">公告對象（可複選）</label>
+              <div id="a-audience" class="mt-2 flex flex-wrap gap-2"></div>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between">
+                <label class="text-sm text-slate-600">公告說明</label>
+                <span id="a-desc-count" class="text-xs text-slate-400">0/500</span>
+              </div>
+              <textarea id="a-desc" rows="4" class="mt-1 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-slate-400"></textarea>
+            </div>
+
+            <div>
+              <label class="text-sm text-slate-600">公告附圖（可多張，選填）</label>
+              <div class="mt-2 flex items-center gap-3">
+                <input id="a-files" type="file" accept="image/*" multiple class="text-sm">
+                <span class="text-xs text-slate-500">建議 JPG/PNG，縮圖僅供預覽。</span>
+              </div>
+              <div id="a-previews" class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+            </div>
+
+            <div>
+              <h3 class="text-sm font-semibold text-slate-700">替代品資訊</h3>
+
+              <div class="mt-2">
+                <label class="text-sm text-slate-600">缺貨材料編號</label>
+                <div class="mt-1 flex gap-2">
+                  <input id="a-mat" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="例如：84-301-010359">
+                  <button id="a-search" type="button" class="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">搜尋</button>
+                  <button id="a-clear-mat" type="button" class="rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">清空</button>
+                </div>
+                <div id="a-search-msg" class="mt-1 text-xs text-slate-500"></div>
+              </div>
+
+              <div class="mt-3">
+                <label class="text-sm text-slate-600">下拉選單對應替代品（選填）</label>
+                <select id="a-alt" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" disabled>
+                  <option value="">— 請先輸入材料編號並搜尋 —</option>
+                </select>
+              </div>
+
+              <h4 class="mt-4 text-sm font-semibold text-slate-700">手動輸入替代品（選填）</h4>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="text-sm text-slate-600">廠商名稱</label>
+                  <input id="a-vendor" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                </div>
+                <div>
+                  <label class="text-sm text-slate-600">型號</label>
+                  <input id="a-model" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                </div>
+                <div class="md:col-span-2">
+                  <label class="text-sm text-slate-600">品名規格</label>
+                  <input id="a-spec" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                </div>
+                <div class="md:col-span-2">
+                  <label class="text-sm text-slate-600">許可證字號</label>
+                  <input id="a-lic" class="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                </div>
+              </div>
+
+              <label class="mt-3 flex items-start gap-2 text-sm">
+                <input id="a-noalt" type="checkbox">
+                <span>目前無可用替代品，請相關單位另行研擬治療方案。</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="text-xs text-slate-500">已儲存待送出：<span id="a-saved-count">0</span> 筆</div>
+            <div class="flex items-center gap-2">
+              <button id="btn-clear-current" type="button" class="rounded-xl border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">清除當前資料</button>
+              <button id="btn-clear-all" type="button" class="rounded-xl border border-rose-300 px-4 py-2 text-sm text-rose-700 hover:bg-rose-50">清除全部</button>
+              <button id="btn-save" type="button" class="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white">儲存到公告</button>
+              <button id="btn-submit" type="button" class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 disabled:cursor-not-allowed">送出</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // 綁定 DOM
+      const el = {
+        title: document.getElementById('a-title'),
+        start: document.getElementById('a-start'),
+        end: document.getElementById('a-end'),
+        dateMsg: document.getElementById('a-date-msg'),
+        audienceWrap: document.getElementById('a-audience'),
+        desc: document.getElementById('a-desc'),
+        descCount: document.getElementById('a-desc-count'),
+        file: document.getElementById('a-files'),
+        previews: document.getElementById('a-previews'),
+        mat: document.getElementById('a-mat'),
+        search: document.getElementById('a-search'),
+        clearMat: document.getElementById('a-clear-mat'),
+        searchMsg: document.getElementById('a-search-msg'),
+        alt: document.getElementById('a-alt'),
+        vendor: document.getElementById('a-vendor'),
+        model: document.getElementById('a-model'),
+        spec: document.getElementById('a-spec'),
+        lic: document.getElementById('a-lic'),
+        noalt: document.getElementById('a-noalt'),
+        savedCount: document.getElementById('a-saved-count'),
+        btnClearCurrent: document.getElementById('btn-clear-current'),
+        btnClearAll: document.getElementById('btn-clear-all'),
+        btnSave: document.getElementById('btn-save'),
+        btnSubmit: document.getElementById('btn-submit'),
+      };
+
+      let title="", start="", end="", desc="";
+      const audience = [];
+      const images = [];
+      let matCode = "", searchMsg = "";
+      let noAlt = false;
+      let altList = [];
+      let selectedAlt = "";
+      let manual = { vendorName:"", model:"", productSpec:"", licenseNo:"" };
+      let savedList = [];
+
+      // 產生對象 chips
+      audienceOptions.forEach(op=>{
+        const b = document.createElement('button');
+        b.type='button';
+        b.textContent = op;
+        b.className='chip';
+        b.dataset.value = op;
+        b.addEventListener('click', ()=>{
+          const i = audience.indexOf(op);
+          if(i>=0){ audience.splice(i,1); b.classList.remove('active'); }
+          else { audience.push(op); b.classList.add('active'); }
+          updateButtonsState();
+        });
+        el.audienceWrap.appendChild(b);
+      });
+
+      // 事件
+      el.title.addEventListener('input', ()=>{ title = el.title.value; updateButtonsState(); });
+      el.start.addEventListener('change', ()=>{ start = el.start.value; checkDate(); updateButtonsState(); });
+      el.end.addEventListener('change', ()=>{ end = el.end.value; checkDate(); updateButtonsState(); });
+      el.desc.addEventListener('input', ()=>{
+        desc = el.desc.value.slice(0,500);
+        if(el.desc.value!==desc) el.desc.value = desc;
+        el.descCount.textContent = `${desc.length}/500`;
+        updateButtonsState();
+      });
+
+      el.file.addEventListener('change', ()=>{
+        const files = Array.from(el.file.files||[]);
+        files.forEach(f=> images.push({ name:f.name, url: URL.createObjectURL(f) }));
+        el.file.value='';
+        renderPreviews(); updateButtonsState();
+      });
+
+      el.search.addEventListener('click', doSearchByMat);
+      el.clearMat.addEventListener('click', ()=>{
+        matCode=""; el.mat.value=""; altList=[]; selectedAlt=""; searchMsg="";
+        setAltOptions(); el.searchMsg.textContent="";
+        manual = { vendorName:"", model:"", productSpec:"", licenseNo:"" };
+        syncManualInputs(); updateButtonsState();
+      });
+      el.mat.addEventListener('input', ()=>{ matCode = el.mat.value; altList=[]; selectedAlt=""; setAltOptions(); el.searchMsg.textContent=""; });
+
+      el.alt.addEventListener('change', ()=>{ selectedAlt = el.alt.value; });
+
+      el.vendor.addEventListener('input', ()=>{ manual.vendorName = el.vendor.value; });
+      el.model.addEventListener('input',  ()=>{ manual.model = el.model.value; });
+      el.spec.addEventListener('input',   ()=>{ manual.productSpec = el.spec.value; });
+      el.lic.addEventListener('input',    ()=>{ manual.licenseNo = el.lic.value; });
+
+      el.noalt.addEventListener('change', ()=>{
+        noAlt = el.noalt.checked;
+        [el.vendor,el.model,el.spec,el.lic].forEach(x=> x.disabled = noAlt);
+        if(noAlt){ manual={vendorName:"",model:"",productSpec:"",licenseNo:""}; syncManualInputs(); }
+      });
+
+      el.btnClearCurrent.addEventListener('click', clearCurrent);
+      el.btnClearAll.addEventListener('click', ()=>{ savedList=[]; el.savedCount.textContent='0'; clearCurrent(); });
+      el.btnSave.addEventListener('click', ()=>{
+        if(!title){ alert('請先填寫公告標題'); return; }
+        if(isInvalidRange()){ alert('結束日期不可早於開始日期'); return; }
+        savedList.push(getCurrentEntry());
+        el.savedCount.textContent = String(savedList.length);
+        clearCurrent();
+      });
+      el.btnSubmit.addEventListener('click', ()=>{
+        if(isInvalidRange()){ alert('結束日期不可早於開始日期'); return; }
+        const entries = savedList.length ? savedList : [getCurrentEntry()];
+        if(entries.length===1 && !entries[0].title){ alert('請先填寫公告標題或先「儲存到公告」。'); return; }
+        alert(`已送出 ${entries.length} 筆（示意）`);
+        console.log('送出內容', entries);
+        savedList=[]; el.savedCount.textContent='0'; clearCurrent();
+      });
+
+      function renderPreviews(){
+        el.previews.innerHTML = images.map((im,i)=>`
+          <div class="group relative overflow-hidden rounded-xl ring-1 ring-slate-200">
+            <img src="${im.url}" alt="${im.name}" class="h-24 w-full object-cover">
+            <button data-i="${i}" class="absolute right-1 top-1 hidden rounded bg-black/60 px-1.5 py-0.5 text-xs text-white group-hover:block">移除</button>
+          </div>`).join('');
+        el.previews.querySelectorAll('button').forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const idx = Number(btn.dataset.i);
+            images.splice(idx,1);
+            renderPreviews();
+          });
+        });
+      }
+
+      function isInvalidRange(){ return start && end && new Date(end) < new Date(start); }
+      function checkDate(){ el.dateMsg.classList.toggle('hidden', !isInvalidRange()); }
+      function setAltOptions(){
+        el.alt.innerHTML = '';
+        if(!altList.length){
+          el.alt.disabled = true;
+          const opt = document.createElement('option');
+          opt.value=''; opt.textContent='— 請先輸入材料編號並搜尋 —';
+          el.alt.appendChild(opt);
+        }else{
+          el.alt.disabled = false;
+          const none = document.createElement('option');
+          none.value=''; none.textContent='— 不選擇 —';
+          el.alt.appendChild(none);
+          altList.forEach(a=>{
+            const o=document.createElement('option'); o.value=a.id; o.textContent=a.label; el.alt.appendChild(o);
+          });
+          el.alt.value = selectedAlt || '';
+        }
+      }
+      function syncManualInputs(){
+        el.vendor.value = manual.vendorName || '';
+        el.model.value  = manual.model || '';
+        el.spec.value   = manual.productSpec || '';
+        el.lic.value    = manual.licenseNo || '';
+      }
+      function updateButtonsState(){
+        el.btnSubmit.disabled = isInvalidRange() || !(title && title.trim().length>0);
+      }
+      function getCurrentEntry(){
+        const altLabel = (altList.find(a=>a.id===selectedAlt)||{}).label || "";
+        return {
+          title, start, end, audience:[...audience], desc,
+          images: images.map(x=>({name:x.name})),
+          matCode, noAlt,
+          selectedAlt, selectedAltLabel: altLabel,
+          manualSubstitute: {...manual}
+        };
+      }
+      function clearCurrent(){
+        title=""; start=""; end=""; desc=""; audience.length=0; images.length=0;
+        matCode=""; searchMsg=""; noAlt=false; altList=[]; selectedAlt="";
+        manual={vendorName:"",model:"",productSpec:"",licenseNo:""};
+        el.title.value=""; el.start.value=""; el.end.value="";
+        el.desc.value=""; el.descCount.textContent="0/500";
+        el.mat.value=""; el.searchMsg.textContent="";
+        [el.vendor,el.model,el.spec,el.lic].forEach(x=>{x.value=""; x.disabled=false;});
+        el.noalt.checked=false;
+        el.previews.innerHTML="";
+        Array.from(el.audienceWrap.children).forEach(c=>c.classList.remove('active'));
+        setAltOptions();
+        updateButtonsState();
+      }
+      function doSearchByMat(){
+        matCode = (el.mat.value||'').trim();
+        selectedAlt = ""; altList = [];
+        if(!matCode){ el.searchMsg.textContent='請先輸入缺貨材料編號再搜尋'; setAltOptions(); return; }
+        altList = altSuggestMap[matCode] ? [...altSuggestMap[matCode]] : [];
+        setAltOptions();
+        el.searchMsg.textContent = altList.length ? '已載入對應下拉建議。' : '目前沒有可供選擇的下拉建議。';
+        if(matDB[matCode]){
+          manual = {...matDB[matCode]};
+          syncManualInputs();
+        }else{
+          manual = {vendorName:"",model:"",productSpec:"",licenseNo:""};
+          syncManualInputs();
+        }
+        updateButtonsState();
+      }
+
+      setAltOptions();
+      updateButtonsState();
+    }
+
+    // ------------------ 事件註冊 ------------------
+    const companyChanged = () => {
+      const company = companySelect.value; state.company = company;
+      if(company){
+        const campuses = Object.keys(dataMap[company].campuses).sort((a,b)=>customCampusOrder.indexOf(a)-customCampusOrder.indexOf(b));
+        populateSelect(campusSelect, campuses, '請選擇院區');
+        campusSelect.disabled = false; warehouseSelect.disabled = true; warehouseSelect.innerHTML = `<option value="">請選擇庫別</option>`;
+        state.campus=''; state.warehouse='';
+      }else{
+        campusSelect.disabled = true; warehouseSelect.disabled = true;
+        campusSelect.innerHTML = `<option value="">請選擇院區</option>`;
+        warehouseSelect.innerHTML = `<option value="">請選擇庫別</option>`;
+        state.company=''; state.campus=''; state.warehouse='';
+      }
+    };
+    companySelect.addEventListener('change', companyChanged);
+
+    campusSelect.addEventListener('change', ()=>{
+      const campus = campusSelect.value; state.campus = campus;
+      if(campus){
+        const warehouses = dataMap[state.company].campuses[campus];
+        populateSelect(warehouseSelect, warehouses, '請選擇庫別');
+        warehouseSelect.disabled = false; state.warehouse='';
+      }else{
+        warehouseSelect.disabled = true; warehouseSelect.innerHTML = `<option value="">請選擇庫別</option>`;
+        state.campus=''; state.warehouse='';
+      }
+    });
+    warehouseSelect.addEventListener('change', ()=>{ state.warehouse = warehouseSelect.value; });
+
+    mainQueryBtn.addEventListener('click', ()=>{
+      const { company, campus, warehouse } = state;
+      if(!company){ mainMessage.textContent = '請選擇公司。'; return; }
+      if(company==='G長庚紀念醫院' && !campus){ mainMessage.textContent = '請選擇院區。'; return; }
+      if(company==='G長庚紀念醫院' && !warehouse){ mainMessage.textContent = '請選擇庫別。'; return; }
+      mainMessage.textContent = '';
+
+      if (materialCodeInput.value){
+        state.selectedMaterialCode = materialCodeInput.value;
+        setView('view-895');
+      } else {
+        const countsByRisk = Object.values(mockDetailedResults).flat()
+          .reduce((acc,item)=>{ acc[item.riskLevel]=(acc[item.riskLevel]||0)+1; return acc; },{});
+        state.queryResults = Object.keys(countsByRisk)
+          .map(riskLevel=>({ warehouse: state.warehouse, riskLevel, count: countsByRisk[riskLevel] }));
+        state.showDetailedTable = false;
+        renderQueryResults();
+        renderDetailedResults();
+      }
+    });
+
+    // 公告填寫
+    gotoAnnouncementBtn.addEventListener('click', ()=> setView('view-announcement'));
+
+    // 風險分級 → 顯示明細
+    queryResultsContainer.addEventListener('click',(e)=>{
+      const btn = e.target.closest('.risk-level-btn');
+      if(!btn) return;
+      let key = (btn.dataset.risk || btn.textContent || '').trim();
+      const map = { '黑':'⚫黑','紅':'🔴紅','黃':'🟡黃','綠':'🟢綠','⚫':'⚫黑','🔴':'🔴紅','🟡':'🟡黃','🟢':'🟢綠' };
+      if(!mockDetailedResults[key]) key = map[key] || key;
+      state.detailedResults = mockDetailedResults[key] || [];
+      state.showDetailedTable = true;
+      renderDetailedResults();
+    });
+
+    // 明細內：三種按鈕
+    detailedResultsContainer.addEventListener('click',(e)=>{
+      if(e.target.classList.contains('material-code-btn')){
+        const code = e.target.dataset.code; state.selectedMaterialCode = code; setView('view-895');
+      }
+      if(e.target.classList.contains('forecast-btn')){
+        const code = e.target.dataset.code; state.selectedMaterialCode = code; state.selectedMaterialForecast = (mockForecastData[code]);
+        setView('view-forecast');
+      }
+      if(e.target.classList.contains('progress-btn')){
+        const code = e.target.dataset.code; state.selectedMaterialCode = code;
+        state.filteredProgressHistory = state.progressHistory.filter(item=>item.materialCode===code);
+        setView('view-progress-input');
+      }
+    });
+
+    // 預測試算
+    document.getElementById('forecast-results-container').addEventListener('click',(e)=>{
+      if(e.target.id==='calculate-usage-btn'){
+        const inventory = document.getElementById('calc-inventory').value;
+        const days = document.getElementById('calc-days').value;
+        const resultDiv = document.getElementById('calculated-usage-result');
+        if(inventory && days && days>0){
+          const monthlyUsage = (inventory/days)*30;
+          resultDiv.innerHTML = `<p class="text-lg font-bold">月均用量: ${monthlyUsage.toFixed(2)}</p>`;
+        }else{
+          resultDiv.innerHTML = `<p class="text-red-500">請輸入有效的庫存量與可用天數。</p>`;
+        }
+      }
+    });
+
+    // 返回主頁
+    document.querySelectorAll('.back-to-main').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        setView('main-view');
+        state.selectedMaterialCode = null;
+        state.selectedMaterialForecast = null;
+        state.filteredProgressHistory = [];
+      });
+    });
+
+    // 進度查詢
+    document.getElementById('progress-query-btn').addEventListener('click', ()=>{
+      const company = document.getElementById('progress-query-company').value;
+      const campus = document.getElementById('progress-query-campus').value;
+      const warehouse = document.getElementById('progress-query-warehouse').value;
+      const materialCode = document.getElementById('progress-query-materialCode').value;
+      const startDate = document.getElementById('progress-startDate').value;
+      const endDate = document.getElementById('progress-endDate').value;
+
+      state.filteredProgressHistory = state.progressHistory.filter(item=>{
+        const itemDate = new Date(item.timestamp.split('-')[0].replace(/\//g,'-'));
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(endDate) : null;
+        const matchCompany = !company || item.company === company;
+        const matchCampus = !campus || item.campus === campus;
+        const matchWarehouse = !warehouse || item.warehouse === warehouse;
+        const matchMaterialCode = !materialCode || item.materialCode.includes(materialCode);
+        const matchDate = (!start || itemDate >= start) && (!end || itemDate <= end);
+        return matchCompany && matchCampus && matchWarehouse && matchMaterialCode && matchDate;
+      });
+      renderProgressInputView();
+    });
+
+    // 送出進度：時間戳記含秒
+    document.getElementById('progress-form').addEventListener('submit',(e)=>{
+      e.preventDefault();
+      const progressMessage = document.getElementById('progress-message');
+      const newProgress = {
+        timestamp: nowTimestamp(),
+        inputter:'用戶',
+        company: document.getElementById('input-company').textContent,
+        campus: document.getElementById('input-campus').textContent,
+        warehouse: document.getElementById('input-warehouse').textContent,
+        materialCode: document.getElementById('input-material-code').textContent,
+        reason: document.getElementById('input-reason').value,
+        progressStatus: document.getElementById('input-progress-status').value,
+        notes: document.getElementById('input-notes').value,
+      };
+      if(!newProgress.reason || !newProgress.progressStatus){
+        progressMessage.textContent = '請填寫所有必填欄位。'; return;
+      }
+      state.progressHistory.push(newProgress);
+      progressMessage.textContent = '提交成功！';
+      progressMessage.style.color = '#10B981';
+      state.filteredProgressHistory = state.progressHistory.filter(item=>item.materialCode===newProgress.materialCode);
+      renderProgressInputView();
+      document.getElementById('input-reason').value='';
+      document.getElementById('input-progress-status').value='';
+      document.getElementById('input-notes').value='';
+    });
+
+    // ------------------ 初始化 ------------------
+    function init(){
+      populateSelect(companySelect, Object.keys(dataMap), '請選擇公司');
+      setView('main-view');
+    }
+    init();
+  </script>
+</body>
+</html>
